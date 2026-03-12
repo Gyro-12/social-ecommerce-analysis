@@ -37,7 +37,7 @@ graph TD
         G -->|查询| M[Flask后端<br>app.py]
         M -->|API| N[ECharts前端<br>dashboard.html]
     end
-
+```
 ## 🔧 技术栈
 | 组件 | 用途 |
 |------|------|
