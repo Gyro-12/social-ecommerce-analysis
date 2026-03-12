@@ -1,0 +1,121 @@
+from flask import Flask, render_template, jsonify
+import pymysql
+import pymysql.cursors
+from collections import defaultdict
+
+app = Flask(__name__)
+
+db_config = {
+    'host': 'localhost',
+    'user': 'root',
+    'password': '123456',
+    'database': 'social_analysis',
+    'charset': 'utf8mb4',
+    'cursorclass': pymysql.cursors.DictCursor
+}
+
+@app.route('/')
+def index():
+    return render_template('dashboard.html')
+
+@app.route('/api/hot-products')
+def hot_products():
+    conn = pymysql.connect(**db_config)
+    with conn.cursor() as cursor:
+        cursor.execute("""
+            SELECT window_start, window_end, item_id, total_hot_score
+            FROM hot_products
+            ORDER BY window_start DESC, total_hot_score DESC
+            LIMIT 50
+        """)
+        data = cursor.fetchall()
+    conn.close()
+    return jsonify(data)
+
+@app.route('/api/behavior-stats')
+def behavior_stats():
+    conn = pymysql.connect(**db_config)
+    with conn.cursor() as cursor:
+        cursor.execute("""
+            SELECT window_start, window_end, behavior_type, total_count
+            FROM behavior_stats
+            ORDER BY window_start DESC
+            LIMIT 200
+        """)
+        data = cursor.fetchall()
+    conn.close()
+    return jsonify(data)
+
+@app.route('/api/behavior-trend')
+def behavior_trend():
+    conn = pymysql.connect(**db_config)
+    with conn.cursor() as cursor:
+        # 获取最近20个窗口的数据
+        cursor.execute("""
+            SELECT window_start, behavior_type, total_count
+            FROM behavior_stats
+            ORDER BY window_start DESC
+            LIMIT 200
+        """)
+        rows = cursor.fetchall()
+    conn.close()
+
+    # 整理成前端易用的格式：按时间分组，每种行为类型为一条线
+    trend_data = defaultdict(lambda: {'interaction': 0, 'purchase': 0, 'view': 0})
+    for row in rows:
+        ws = row['window_start'].strftime('%Y-%m-%d %H:%M:%S')
+        bt = row['behavior_type']
+        trend_data[ws][bt] = row['total_count']
+    
+    # 转换为列表并排序
+    sorted_windows = sorted(trend_data.keys(), reverse=False)
+    result = []
+    for ws in sorted_windows:
+        result.append({
+            'window': ws,
+            'interaction': trend_data[ws]['interaction'],
+            'purchase': trend_data[ws]['purchase'],
+            'view': trend_data[ws]['view']
+        })
+    return jsonify(result)
+
+@app.route('/api/kpi')
+def kpi():
+    conn = pymysql.connect(**db_config)
+    with conn.cursor() as cursor:
+        # 获取最新窗口的统计数据作为KPI示例
+        cursor.execute("""
+            SELECT SUM(total_count) as total_interaction 
+            FROM behavior_stats 
+            WHERE behavior_type='interaction' 
+            ORDER BY window_start DESC 
+            LIMIT 1
+        """)
+        interaction = cursor.fetchone()['total_interaction'] or 0
+        
+        cursor.execute("""
+            SELECT SUM(total_count) as total_purchase 
+            FROM behavior_stats 
+            WHERE behavior_type='purchase' 
+            ORDER BY window_start DESC 
+            LIMIT 1
+        """)
+        purchase = cursor.fetchone()['total_purchase'] or 0
+        
+        cursor.execute("""
+            SELECT SUM(total_count) as total_view 
+            FROM behavior_stats 
+            WHERE behavior_type='view' 
+            ORDER BY window_start DESC 
+            LIMIT 1
+        """)
+        view = cursor.fetchone()['total_view'] or 0
+    conn.close()
+    return jsonify({
+        'interaction': interaction,
+        'purchase': purchase,
+        'view': view
+    })
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=5000, debug=True)
